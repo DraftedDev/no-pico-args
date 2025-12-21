@@ -12,7 +12,8 @@ readme = "README.md"
 exclude = ["test-apps/**"]
 
 [features]
-default = []
+default = ["std"]
+std = []
 eq-separator = []
 combined-flags = []
 short-space-opt = []

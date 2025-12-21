@@ -32,18 +32,23 @@ If you think that this library doesn't support some feature, it's probably inten
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+#![no_std]
 
-use std::ffi::{OsString, OsStr};
-use std::fmt::{self, Display};
-use std::str::FromStr;
+#[cfg(feature = "std")]
+extern crate std;
 
+extern crate alloc;
+
+use alloc::string::String;
+use alloc::string::ToString;
+use alloc::vec::Vec;
+use core::fmt;
+use core::fmt::Display;
+use core::str::FromStr;
 
 /// A list of possible errors.
 #[derive(Clone, Debug)]
 pub enum Error {
-    /// Arguments must be a valid UTF-8 strings.
-    NonUtf8Argument,
-
     /// A missing free-standing argument.
     MissingArgument,
 
@@ -65,9 +70,6 @@ pub enum Error {
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::NonUtf8Argument => {
-                write!(f, "argument is not a UTF-8 string")
-            }
             Error::MissingArgument => {
                 write!(f, "free-standing argument is missing")
             }
@@ -75,7 +77,12 @@ impl Display for Error {
                 if key.second().is_empty() {
                     write!(f, "the '{}' option must be set", key.first())
                 } else {
-                    write!(f, "the '{}/{}' option must be set", key.first(), key.second())
+                    write!(
+                        f,
+                        "the '{}/{}' option must be set",
+                        key.first(),
+                        key.second()
+                    )
                 }
             }
             Error::OptionWithoutAValue(key) => {
@@ -91,8 +98,7 @@ impl Display for Error {
     }
 }
 
-impl std::error::Error for Error {}
-
+impl core::error::Error for Error {}
 
 #[derive(Clone, Copy, PartialEq)]
 enum PairKind {
@@ -101,10 +107,9 @@ enum PairKind {
     TwoArguments,
 }
 
-
 /// An arguments parser.
 #[derive(Clone, Debug)]
-pub struct Arguments(Vec<OsString>);
+pub struct Arguments(Vec<String>);
 
 impl Arguments {
     /// Creates a parser from a vector of arguments.
@@ -113,7 +118,7 @@ impl Arguments {
     ///
     /// This can be used for supporting `--` arguments to forward to another program.
     /// See `examples/dash_dash.rs` for an example.
-    pub fn from_vec(args: Vec<OsString>) -> Self {
+    pub fn from_vec(args: Vec<String>) -> Self {
         Arguments(args)
     }
 
@@ -122,8 +127,11 @@ impl Arguments {
     /// The executable path will be removed.
     ///
     /// [`env::args_os`]: https://doc.rust-lang.org/stable/std/env/fn.args_os.html
+    #[cfg(feature = "std")]
     pub fn from_env() -> Self {
-        let mut args: Vec<_> = std::env::args_os().collect();
+        let mut args: Vec<_> = std::env::args_os()
+            .map(|s| s.into_string().expect("Non-UTF-8 argument"))
+            .collect();
         args.remove(0);
         Arguments(args)
     }
@@ -135,21 +143,17 @@ impl Arguments {
     /// # Errors
     ///
     /// - When arguments is not a UTF-8 string.
-    pub fn subcommand(&mut self) -> Result<Option<String>, Error> {
+    pub fn subcommand(&mut self) -> Option<String> {
         if self.0.is_empty() {
-            return Ok(None);
+            return None;
         }
 
-        if let Some(s) = self.0[0].to_str() {
-            if s.starts_with('-') {
-                return Ok(None);
-            }
+        let s = self.0[0].as_str();
+        if s.starts_with('-') {
+            return None;
         }
 
-        self.0.remove(0)
-            .into_string()
-            .map_err(|_| Error::NonUtf8Argument)
-            .map(Some)
+        Some(self.0.remove(0))
     }
 
     /// Checks that arguments contain a specified flag.
@@ -178,16 +182,16 @@ impl Arguments {
                 if keys.first().len() == 2 {
                     let short_flag = &keys.first()[1..2];
                     for (n, item) in self.0.iter().enumerate() {
-                        if let Some(s) = item.to_str() {
-                            if s.starts_with('-') && !s.starts_with("--") && s.contains(short_flag) {
-                                if s.len() == 2 {
-                                    // last flag
-                                    self.0.remove(n);
-                                } else {
-                                    self.0[n] = s.replacen(short_flag, "", 1).into();
-                                }
-                                return true;
+                        let s = item.as_str();
+
+                        if s.starts_with('-') && !s.starts_with("--") && s.contains(short_flag) {
+                            if s.len() == 2 {
+                                // last flag
+                                self.0.remove(n);
+                            } else {
+                                self.0[n] = s.replacen(short_flag, "", 1).into();
                             }
+                            return true;
                         }
                     }
                 }
@@ -283,12 +287,10 @@ impl Arguments {
 
                         Ok(Some(value))
                     }
-                    Err(e) => {
-                        Err(Error::Utf8ArgumentParsingFailed {
-                            value: value.to_string(),
-                            cause: error_to_string(e),
-                        })
-                    }
+                    Err(e) => Err(Error::Utf8ArgumentParsingFailed {
+                        value: value.to_string(),
+                        cause: error_to_string(e),
+                    }),
                 }
             }
             None => Ok(None),
@@ -298,10 +300,7 @@ impl Arguments {
     // The whole logic must be type-independent to prevent monomorphization.
     #[cfg(any(feature = "eq-separator", feature = "short-space-opt"))]
     #[inline(never)]
-    fn find_value(
-        &mut self,
-        keys: Keys,
-    ) -> Result<Option<(&str, PairKind, usize)>, Error> {
+    fn find_value(&mut self, keys: Keys) -> Result<Option<(&str, PairKind, usize)>, Error> {
         if let Some((idx, key)) = self.index_of(keys) {
             // Parse a `--key value` pair.
 
@@ -310,7 +309,6 @@ impl Arguments {
                 None => return Err(Error::OptionWithoutAValue(key)),
             };
 
-            let value = os_to_str(value)?;
             Ok(Some((value, PairKind::TwoArguments, idx)))
         } else if let Some((idx, key)) = self.index_of2(keys) {
             // Parse a `--key=value` or `-Kvalue` pair.
@@ -318,7 +316,7 @@ impl Arguments {
             let value = &self.0[idx];
 
             // Only UTF-8 strings are supported in this method.
-            let value = value.to_str().ok_or_else(|| Error::NonUtf8Argument)?;
+            let value = value.as_str();
 
             let mut value_range = key.len()..value.len();
 
@@ -370,10 +368,7 @@ impl Arguments {
     // The whole logic must be type-independent to prevent monomorphization.
     #[cfg(not(any(feature = "eq-separator", feature = "short-space-opt")))]
     #[inline(never)]
-    fn find_value(
-        &mut self,
-        keys: Keys,
-    ) -> Result<Option<(&str, PairKind, usize)>, Error> {
+    fn find_value(&mut self, keys: Keys) -> Result<Option<(&str, PairKind, usize)>, Error> {
         if let Some((idx, key)) = self.index_of(keys) {
             // Parse a `--key value` pair.
 
@@ -381,8 +376,6 @@ impl Arguments {
                 Some(v) => v,
                 None => return Err(Error::OptionWithoutAValue(key)),
             };
-
-            let value = os_to_str(value)?;
             Ok(Some((value, PairKind::TwoArguments, idx)))
         } else {
             Ok(None)
@@ -393,10 +386,10 @@ impl Arguments {
     ///
     /// This is a shorthand for `values_from_fn("--key", FromStr::from_str)`
     pub fn values_from_str<A, T>(&mut self, keys: A) -> Result<Vec<T>, Error>
-        where
-            A: Into<Keys>,
-            T: FromStr,
-            <T as FromStr>::Err: Display,
+    where
+        A: Into<Keys>,
+        T: FromStr,
+        <T as FromStr>::Err: Display,
     {
         self.values_from_fn(keys, FromStr::from_str)
     }
@@ -424,104 +417,6 @@ impl Arguments {
         let mut values = Vec::new();
         loop {
             match self.opt_value_from_fn(keys, f) {
-                Ok(Some(v)) => values.push(v),
-                Ok(None) => break,
-                Err(e) => return Err(e),
-            }
-        }
-
-        Ok(values)
-    }
-
-    /// Parses a key-value pair using a specified function.
-    ///
-    /// Unlike [`value_from_fn`], parses `&OsStr` and not `&str`.
-    ///
-    /// Must be used only once for each option.
-    ///
-    /// # Errors
-    ///
-    /// - When option is not present.
-    /// - When value parsing failed.
-    /// - When key-value pair is separated not by space.
-    ///   Only [`value_from_fn`] supports `=` separator.
-    ///
-    /// [`value_from_fn`]: struct.Arguments.html#method.value_from_fn
-    pub fn value_from_os_str<A: Into<Keys>, T, E: Display>(
-        &mut self,
-        keys: A,
-        f: fn(&OsStr) -> Result<T, E>,
-    ) -> Result<T, Error> {
-        let keys = keys.into();
-        match self.opt_value_from_os_str(keys, f) {
-            Ok(Some(v)) => Ok(v),
-            Ok(None) => Err(Error::MissingOption(keys)),
-            Err(e) => Err(e),
-        }
-    }
-
-    /// Parses an optional key-value pair using a specified function.
-    ///
-    /// The same as [`value_from_os_str`], but returns `Ok(None)` when option is not present.
-    ///
-    /// [`value_from_os_str`]: struct.Arguments.html#method.value_from_os_str
-    pub fn opt_value_from_os_str<A: Into<Keys>, T, E: Display>(
-        &mut self,
-        keys: A,
-        f: fn(&OsStr) -> Result<T, E>,
-    ) -> Result<Option<T>, Error> {
-        self.opt_value_from_os_str_impl(keys.into(), f)
-    }
-
-    #[inline(never)]
-    fn opt_value_from_os_str_impl<T, E: Display>(
-        &mut self,
-        keys: Keys,
-        f: fn(&OsStr) -> Result<T, E>,
-    ) -> Result<Option<T>, Error> {
-        if let Some((idx, key)) = self.index_of(keys) {
-            // Parse a `--key value` pair.
-
-            let value = match self.0.get(idx + 1) {
-                Some(v) => v,
-                None => return Err(Error::OptionWithoutAValue(key)),
-            };
-
-            match f(value) {
-                Ok(value) => {
-                    // Remove only when all checks are passed.
-                    self.0.remove(idx);
-                    self.0.remove(idx);
-                    Ok(Some(value))
-                }
-                Err(e) => {
-                    Err(Error::ArgumentParsingFailed { cause: error_to_string(e) })
-                }
-            }
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Parses multiple key-value pairs into the `Vec` using a specified function.
-    ///
-    /// This method simply executes [`opt_value_from_os_str`] multiple times.
-    ///
-    /// Unlike [`values_from_fn`], parses `&OsStr` and not `&str`.
-    ///
-    /// An empty `Vec` is not an error.
-    ///
-    /// [`opt_value_from_os_str`]: struct.Arguments.html#method.opt_value_from_os_str
-    /// [`values_from_fn`]: struct.Arguments.html#method.values_from_fn
-    pub fn values_from_os_str<A: Into<Keys>, T, E: Display>(
-        &mut self,
-        keys: A,
-        f: fn(&OsStr) -> Result<T, E>,
-    ) -> Result<Vec<T>, Error> {
-        let keys = keys.into();
-        let mut values = Vec::new();
-        loop {
-            match self.opt_value_from_os_str(keys, f) {
                 Ok(Some(v)) => values.push(v),
                 Ok(None) => break,
                 Err(e) => return Err(e),
@@ -559,7 +454,11 @@ impl Arguments {
         }
 
         if !keys.second().is_empty() {
-            if let Some(i) = self.0.iter().position(|v| index_predicate(v, keys.second())) {
+            if let Some(i) = self
+                .0
+                .iter()
+                .position(|v| index_predicate(v, keys.second()))
+            {
                 return Some((i, keys.second()));
             }
         }
@@ -598,24 +497,8 @@ impl Arguments {
     ///
     /// [`free_from_os_str`]: struct.Arguments.html#method.free_from_os_str
     #[inline(never)]
-    pub fn free_from_fn<T, E: Display>(
-        &mut self,
-        f: fn(&str) -> Result<T, E>,
-    ) -> Result<T, Error> {
+    pub fn free_from_fn<T, E: Display>(&mut self, f: fn(&str) -> Result<T, E>) -> Result<T, Error> {
         self.opt_free_from_fn(f)?.ok_or(Error::MissingArgument)
-    }
-
-    /// Parses a free-standing argument using a specified function.
-    ///
-    /// The same as [`free_from_fn`], but parses `&OsStr` instead of `&str`.
-    ///
-    /// [`free_from_fn`]: struct.Arguments.html#method.free_from_fn
-    #[inline(never)]
-    pub fn free_from_os_str<T, E: Display>(
-        &mut self,
-        f: fn(&OsStr) -> Result<T, E>,
-    ) -> Result<T, Error> {
-        self.opt_free_from_os_str(f)?.ok_or(Error::MissingArgument)
     }
 
     /// Parses an optional free-standing argument using `FromStr` trait.
@@ -624,9 +507,9 @@ impl Arguments {
     ///
     /// [`free_from_str`]: struct.Arguments.html#method.free_from_str
     pub fn opt_free_from_str<T>(&mut self) -> Result<Option<T>, Error>
-        where
-            T: FromStr,
-            <T as FromStr>::Err: Display,
+    where
+        T: FromStr,
+        <T as FromStr>::Err: Display,
     {
         self.opt_free_from_fn(FromStr::from_str)
     }
@@ -645,7 +528,6 @@ impl Arguments {
             Ok(None)
         } else {
             let value = self.0.remove(0);
-            let value = os_to_str(value.as_os_str())?;
             match f(&value) {
                 Ok(value) => Ok(Some(value)),
                 Err(e) => Err(Error::Utf8ArgumentParsingFailed {
@@ -656,33 +538,12 @@ impl Arguments {
         }
     }
 
-    /// Parses a free-standing argument using a specified function.
-    ///
-    /// The same as [`free_from_os_str`], but returns `Ok(None)` when argument is not present.
-    ///
-    /// [`free_from_os_str`]: struct.Arguments.html#method.free_from_os_str
-    #[inline(never)]
-    pub fn opt_free_from_os_str<T, E: Display>(
-        &mut self,
-        f: fn(&OsStr) -> Result<T, E>,
-    ) -> Result<Option<T>, Error> {
-        if self.0.is_empty() {
-            Ok(None)
-        } else {
-            let value = self.0.remove(0);
-            match f(value.as_os_str()) {
-                Ok(value) => Ok(Some(value)),
-                Err(e) => Err(Error::ArgumentParsingFailed { cause: error_to_string(e) }),
-            }
-        }
-    }
-
     /// Returns a list of remaining arguments.
     ///
     /// It's up to the caller what to do with them.
     /// One can report an error about unused arguments,
     /// other can use them for further processing.
-    pub fn finish(self) -> Vec<OsString> {
+    pub fn finish(self) -> Vec<String> {
         self.0
     }
 }
@@ -696,12 +557,10 @@ fn error_to_string<E: Display>(e: E) -> String {
 
 #[cfg(feature = "eq-separator")]
 #[inline(never)]
-fn starts_with_plus_eq(text: &OsStr, prefix: &str) -> bool {
-    if let Some(s) = text.to_str() {
-        if s.get(0..prefix.len()) == Some(prefix) {
-            if s.as_bytes().get(prefix.len()) == Some(&b'=') {
-                return true;
-            }
+fn starts_with_plus_eq(text: &str, prefix: &str) -> bool {
+    if text.get(0..prefix.len()) == Some(prefix) {
+        if text.as_bytes().get(prefix.len()) == Some(&b'=') {
+            return true;
         }
     }
 
@@ -710,14 +569,12 @@ fn starts_with_plus_eq(text: &OsStr, prefix: &str) -> bool {
 
 #[cfg(feature = "short-space-opt")]
 #[inline(never)]
-fn starts_with_short_prefix(text: &OsStr, prefix: &str) -> bool {
+fn starts_with_short_prefix(text: &str, prefix: &str) -> bool {
     if prefix.starts_with("--") {
         return false; // Only works for short keys
     }
-    if let Some(s) = text.to_str() {
-        if s.get(0..prefix.len()) == Some(prefix) {
-            return true;
-        }
+    if text.get(0..prefix.len()) == Some(prefix) {
+        return true;
     }
 
     false
@@ -725,17 +582,17 @@ fn starts_with_short_prefix(text: &OsStr, prefix: &str) -> bool {
 
 #[cfg(all(feature = "eq-separator", feature = "short-space-opt"))]
 #[inline]
-fn index_predicate(text: &OsStr, prefix: &str) -> bool {
+fn index_predicate(text: &str, prefix: &str) -> bool {
     starts_with_plus_eq(text, prefix) || starts_with_short_prefix(text, prefix)
 }
 #[cfg(all(feature = "eq-separator", not(feature = "short-space-opt")))]
 #[inline]
-fn index_predicate(text: &OsStr, prefix: &str) -> bool {
+fn index_predicate(text: &str, prefix: &str) -> bool {
     starts_with_plus_eq(text, prefix)
 }
 #[cfg(all(feature = "short-space-opt", not(feature = "eq-separator")))]
 #[inline]
-fn index_predicate(text: &OsStr, prefix: &str) -> bool {
+fn index_predicate(text: &str, prefix: &str) -> bool {
     starts_with_short_prefix(text, prefix)
 }
 
@@ -748,12 +605,6 @@ fn ends_with(text: &str, c: u8) -> bool {
         text.as_bytes()[text.len() - 1] == c
     }
 }
-
-#[inline]
-fn os_to_str(text: &OsStr) -> Result<&str, Error> {
-    text.to_str().ok_or_else(|| Error::NonUtf8Argument)
-}
-
 
 /// A keys container.
 ///
@@ -791,8 +642,10 @@ impl From<[&'static str; 2]> for Keys {
 fn validate_shortflag(short_key: &'static str) {
     let mut chars = short_key[1..].chars();
     if let Some(first) = chars.next() {
-        debug_assert!(short_key.len() == 2 || chars.all(|c| c == first),
-            "short keys should be a single character or a repeated character");
+        debug_assert!(
+            short_key.len() == 2 || chars.all(|c| c == first),
+            "short keys should be a single character or a repeated character"
+        );
     }
 }
 

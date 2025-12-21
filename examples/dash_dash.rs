@@ -1,22 +1,21 @@
 #![allow(dead_code)]
 
-use std::ffi::OsString;
-
 #[derive(Debug)]
 struct Args {
-    forwarded_args: Vec<OsString>,
+    forwarded_args: Vec<String>,
     help: bool,
 }
 
 fn parse_args() -> Result<Args, pico_args::Error> {
-    // `from_vec` takes `OsString`, not `String`.
-    let mut args: Vec<_> = std::env::args_os().collect();
+    let mut args: Vec<_> = std::env::args_os()
+        .map(|s| s.into_string().expect("Non-UTF-8 argument"))
+        .collect();
     args.remove(0); // remove the executable path.
 
     // Find and process `--`.
     let forwarded_args = if let Some(dash_dash) = args.iter().position(|arg| arg == "--") {
         // Store all arguments following ...
-        let later_args = args.drain(dash_dash+1..).collect();
+        let later_args = args.drain(dash_dash + 1..).collect();
         // .. then remove the `--`
         args.pop();
         later_args
