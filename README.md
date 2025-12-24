@@ -1,7 +1,7 @@
 # no-pico-args
 
 ![Build Status](https://github.com/drafteddev/no-pico-args/workflows/Rust/badge.svg)
-[![Crates.io](https://img.shields.io/crates/v/no-pico-args.svg)](https://crates.io/crates/pico-args)
+[![Crates.io](https://img.shields.io/crates/v/no-pico-args.svg)](https://crates.io/crates/no-pico-args)
 [![Documentation](https://docs.rs/no-pico-args/badge.svg)](https://docs.rs/no-pico-args)
 [![Rust 1.32+](https://img.shields.io/badge/rust-1.31+-orange.svg)](https://www.rust-lang.org)
 ![](https://img.shields.io/badge/unsafe-forbidden-brightgreen.svg)
