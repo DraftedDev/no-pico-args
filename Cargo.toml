@@ -1,18 +1,18 @@
 [package]
-name = "pico-args"
+name = "no-pico-args"
 version = "0.5.0"
-authors = ["Yevhenii Reizner <razrfalcon@gmail.com>"]
+authors = ["Yevhenii Reizner <razrfalcon@gmail.com>", "Mikail Plotzky <mp@ypon.com>"]
 edition = "2018"
-keywords = ["args", "cli"]
+keywords = ["args", "cli", "no_std"]
 license = "MIT"
-description = "An ultra simple CLI arguments parser."
-repository = "https://github.com/RazrFalcon/pico-args"
-documentation = "https://docs.rs/pico-args/"
+description = "`no_std` version of `pico_args` by RazrFalcon."
+repository = "https://github.com/drafteddev/no-pico-args"
+documentation = "https://docs.rs/no-pico-args/"
 readme = "README.md"
 exclude = ["test-apps/**"]
 
 [features]
-default = ["std"]
+default = []
 std = []
 eq-separator = []
 combined-flags = []

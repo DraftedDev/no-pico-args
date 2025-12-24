@@ -1,21 +1,28 @@
-# pico-args
-![Build Status](https://github.com/RazrFalcon/pico-args/workflows/Rust/badge.svg)
-[![Crates.io](https://img.shields.io/crates/v/pico-args.svg)](https://crates.io/crates/pico-args)
-[![Documentation](https://docs.rs/pico-args/badge.svg)](https://docs.rs/pico-args)
+# no-pico-args
+
+![Build Status](https://github.com/drafteddev/no-pico-args/workflows/Rust/badge.svg)
+[![Crates.io](https://img.shields.io/crates/v/no-pico-args.svg)](https://crates.io/crates/pico-args)
+[![Documentation](https://docs.rs/no-pico-args/badge.svg)](https://docs.rs/no-pico-args)
 [![Rust 1.32+](https://img.shields.io/badge/rust-1.31+-orange.svg)](https://www.rust-lang.org)
 ![](https://img.shields.io/badge/unsafe-forbidden-brightgreen.svg)
 
-An ultra simple CLI arguments parser.
+**`no_std` compatible version of [pico-args](https://github.com/RazrFalcon/pico-args).**
 
-If you think that this library doesn't support some feature, it's probably intentional.
+This is a fork of the popular [pico-args](https://github.com/RazrFalcon/pico-args) crate
+by [RazrFalcon](https://github.com/RazrFalcon), with the goal of making it
+`no_std` compatible. All the types (mainly `OsString` and `OsStr`) have been converted to `String` and `&str`
+respectively, to make it `no_std` compatible. You will still need the `alloc` crate though.
 
-- No help generation
-- Only flags, options, free arguments and subcommands are supported
-- Options can be separated by a space, `=` or nothing. See build features
-- Arguments can be in any order
-- Non UTF-8 arguments are supported
+One limitation this adds, is that it only supports UTF8 arguments.
+
+See [pico-args](https://github.com/RazrFalcon/pico-args) for more information about the actual crate.
 
 ## Build features
+
+- `std`
+
+  Enables use of `std`-related functions.
+  Disabling this will make the library `no_std` compatible.
 
 - `eq-separator`
 
@@ -35,36 +42,11 @@ If you think that this library doesn't support some feature, it's probably inten
   If `short-space-opt` or `eq-separator` are enabled, you must parse flags after values,
   to prevent ambiguities
 
-## Limitations
+## Attribution
 
-The main fundamental limitation of `pico-args` is that it parses arguments in an arbitrary order.
-This is because we have a sort of "streaming" API and we don't know all the keys/arguments
-beforehand. This could lead to some unexpected behaviors.
-Specifically, let's say you have a following arguments:
-
-```
---arg1 --arg2 value
-```
-
-If your parser tries to parse `--arg1` as key-value first, than its value would be `--arg2`
-and not `value`, because the parser simply takes the "next" argument.
-A properer parser would knew that `--arg2` is a key and will return an error,
-since the value is missing.
-
-If your parser tries to parse `--arg2` as a flag first and then `--arg1` as key-value,
-then its value would be `value`, because `--arg2` was already removed by the parser
-and the arguments list looks like `--arg1 value` to the parser.
-
-If such behavior is unacceptable to your application, then you have to use a more high-level
-arguments parsing library.
-
-## Alternatives
-
-The core idea of `pico-args` is to provide some "sugar" for arguments parsing without
-a lot of overhead (binary or compilation time wise).
-There are no point in comparing parsing features since `pico-args` supports
-only the bare minimum. [Here](https://github.com/rust-cli/argparse-benchmarks-rs)
-is a great comparison of various arguments parsing libraries.
+This crate is a fork of [pico-args](https://github.com/RazrFalcon/pico-args)
+by [RazrFalcon](https://github.com/RazrFalcon) and does not really add any value to the original code, other than making
+it `no_std` compatible. The entire logic is taken from the original crate, with only minor changes.
 
 ## License
 
